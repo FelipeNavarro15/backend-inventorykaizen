@@ -1,0 +1,12 @@
+Django
+djangorestframework
+djangorestframework-simplejwt
+django-cors-headers
+Pillow
+python-decouple
+django-extensions
+gunicorn
+psycopg2-binary
+whitenoise
+dj-database-url
+mysqlclient==2.2.4
