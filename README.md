@@ -20,25 +20,30 @@ Este es el núcleo (API) del sistema ERP para **Kaizen F&F**, diseñado para cen
 ## 🔧 Configuración e Instalación
 
 1. **Clonar el repositorio:**
+
    ```bash
    git clone [https://github.com/FelipeNavarro15/backend-inventorykaizen.git](https://github.com/FelipeNavarro15/backend-inventorykaizen.git)
    cd backend-inventorykaizen
 
 2. **Crear y activar el entorno virtual:**
+
    ```bash
     python -m venv .venv
     # En Windows:
     .venv\Scripts\activate
 
 3. **Instalar dependencias:**
+
    ```bash
     pip install -r requirements.txt
 
 4. **Ejecutar migraciones:**
+
    ```bash
     python manage.py migrate
 
 5. **Iniciar el servidor:**
+
    ```bash
     python manage.py runserver
 
