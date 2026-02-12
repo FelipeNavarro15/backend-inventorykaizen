@@ -1,5 +1,6 @@
 from pathlib import Path
 import dj_database_url
+from datetime import timedelta
 import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -131,6 +132,11 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.JSONRenderer',
         'rest_framework.renderers.BrowsableAPIRenderer',
     ],
+}
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=8),
+    "AUTH_HEADER_TYPES": ("Bearer",),
 }
 
 # Media files
