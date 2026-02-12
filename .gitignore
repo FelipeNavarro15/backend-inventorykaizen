@@ -1,0 +1,25 @@
+# Entorno Virtual
+.venv/
+venv/
+env/
+ENV/
+
+# Python (Archivos temporales)
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Base de datos (Local)
+db.sqlite3
+
+# Archivos de configuración sensible
+.env
+
+# Archivos del sistema y carpetas de VS Code
+.vscode/
+Thumbs.db
+.DS_Store
+
+# Archivos estáticos y media (opcional, depende de si los quieres en Git)
+media/
+staticfiles/

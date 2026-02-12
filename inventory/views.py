@@ -2,6 +2,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
+from rest_framework.permissions import IsAuthenticated
 from decimal import Decimal
 from django.db.models import Sum, F, DecimalField, ExpressionWrapper
 from django.db.models.functions import Coalesce
@@ -14,6 +15,7 @@ from .serializers import (
 )
 
 class ProductoViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
     queryset = Producto.objects.all()
     serializer_class = ProductoSerializer
     
@@ -62,6 +64,7 @@ class ProductoViewSet(viewsets.ModelViewSet):
 
 
 class CompraViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
     queryset = Compra.objects.all()
     serializer_class = CompraSerializer
     
@@ -99,6 +102,7 @@ class CompraViewSet(viewsets.ModelViewSet):
 
 class CompraPadreViewSet(viewsets.ModelViewSet):
     """ViewSet para gestionar compras padre con múltiples productos"""
+    permission_classes = [IsAuthenticated]
     queryset = CompraPadre.objects.all()
     
     def get_serializer_class(self):
@@ -138,6 +142,7 @@ class CompraPadreViewSet(viewsets.ModelViewSet):
 
 
 class VentaViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
     queryset = Venta.objects.all()
     serializer_class = VentaSerializer
     
@@ -189,7 +194,7 @@ class VentaViewSet(viewsets.ModelViewSet):
 
 
 class InventarioViewSet(viewsets.GenericViewSet):
-    
+    permission_classes = [IsAuthenticated]
     queryset = Producto.objects.all()
     def list(self, request):
         productos = Producto.objects.all()
