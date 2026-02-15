@@ -24,67 +24,55 @@ class Producto(models.Model):
     @staticmethod
     def calcular_numero_dinámico_venta(fecha_venta, venta_id=None):
         """
-        Calcula el número dinámico para una venta basado en la fecha.
-        Las ventas más recientes tienen números más bajos.
-        Si hay múltiples ventas en la misma fecha, comparten el mismo número.
+        Calcula el número de venta agrupado por fecha.
+        Todas las ventas del mismo día tienen el mismo número.
+        Las fechas únicas están ordenadas ascendentemente.
         """
-        from django.db.models import F, Window
-        from django.db.models.functions import Rank, DenseRank
+        # Obtener todas las fechas únicas ordenadas ascendentemente
+        fechas_unicas = Venta.objects.values_list('fecha', flat=True).distinct().order_by('fecha')
         
-        # Obtener todas las ventas
-        todas_ventas = Venta.objects.all()
-        
-        # Obtener fechas únicas ordenadas descendente (más reciente primero)
-        fechas_unicas = todas_ventas.values_list('fecha', flat=True).distinct().order_by('-fecha')
-        
-        # Encontrar la posición de la fecha actual
-        for indice, fecha in enumerate(fechas_unicas, 1):
+        # Buscar la posición de la fecha actual
+        for numero, fecha in enumerate(fechas_unicas, 1):
             if fecha == fecha_venta:
-                return indice
+                return numero
         
-        # Si no se encuentra, devolver el siguiente número
+        # Si no se encuentra (venta nueva), devolver el siguiente número
         return len(list(fechas_unicas)) + 1
     
     @staticmethod
     def calcular_numero_dinámico_compra(fecha_compra, compra_id=None):
         """
-        Calcula el número dinámico para una compra basado en la fecha.
-        Las compras más recientes tienen números más bajos.
-        Si hay múltiples compras en la misma fecha, comparten el mismo número.
+        Calcula el número de compra agrupado por fecha.
+        Todas las compras del mismo día tienen el mismo número.
+        Las fechas únicas están ordenadas ascendentemente.
         """
-        # Obtener todas las compras
-        todas_compras = Compra.objects.all()
+        # Obtener todas las fechas únicas ordenadas ascendentemente
+        fechas_unicas = Compra.objects.values_list('fecha', flat=True).distinct().order_by('fecha')
         
-        # Obtener fechas únicas ordenadas descendente (más reciente primero)
-        fechas_unicas = todas_compras.values_list('fecha', flat=True).distinct().order_by('-fecha')
-        
-        # Encontrar la posición de la fecha actual
-        for indice, fecha in enumerate(fechas_unicas, 1):
+        # Buscar la posición de la fecha actual
+        for numero, fecha in enumerate(fechas_unicas, 1):
             if fecha == fecha_compra:
-                return indice
+                return numero
         
-        # Si no se encuentra, devolver el siguiente número
+        # Si no se encuentra (compra nueva), devolver el siguiente número
         return len(list(fechas_unicas)) + 1
     
     @staticmethod
     def calcular_numero_dinámico_compra_padre(fecha_compra, compra_padre_id=None):
         """
-        Calcula el número dinámico para una compra padre basado en la fecha.
-        Las compras padre más recientes tienen números más bajos.
-        Si hay múltiples compras padre en la misma fecha, comparten el mismo número.
+        Calcula el número de compra padre agrupado por fecha.
+        Todas las compras padre del mismo día tienen el mismo número.
+        Las fechas únicas están ordenadas ascendentemente.
         """
-        # Obtener todas las compras padre
-        todas_compras_padre = CompraPadre.objects.all()
+        # Obtener todas las fechas únicas ordenadas ascendentemente
+        fechas_unicas = CompraPadre.objects.values_list('fecha', flat=True).distinct().order_by('fecha')
         
-        # Obtener fechas únicas ordenadas descendente (más reciente primero)
-        fechas_unicas = todas_compras_padre.values_list('fecha', flat=True).distinct().order_by('-fecha')
-        
-        # Encontrar la posición de la fecha actual
-        for indice, fecha in enumerate(fechas_unicas, 1):
+        # Buscar la posición de la fecha actual
+        for numero, fecha in enumerate(fechas_unicas, 1):
             if fecha == fecha_compra:
-                return indice
+                return numero
         
-        # Si no se encuentra, devolver el siguiente número
+        # Si no se encuentra (compra padre nueva), devolver el siguiente número
         return len(list(fechas_unicas)) + 1
     
     class Meta:
@@ -108,11 +96,30 @@ class Producto(models.Model):
 # Modelo CompraPadre para agrupar múltiples compras
 class CompraPadre(models.Model):
     """Agrupa múltiples productos en una sola compra"""
-    numero = models.IntegerField(unique=True, null=True, blank=True, editable=False)
+    numero = models.IntegerField(null=True, blank=True, editable=False)
     fecha = models.DateField()
     proveedor = models.CharField(max_length=200)
     notas = models.TextField(blank=True)
     fecha_registro = models.DateTimeField(auto_now_add=True)
+    
+    def save(self, *args, **kwargs):
+        # Asignar número basado en la fecha (agrupado por día)
+        if self.numero is None:
+            # Obtener todas las fechas únicas ordenadas ascendentemente
+            fechas_unicas = list(Venta.objects.values_list('fecha', flat=True).distinct().order_by('fecha'))
+            
+            # Buscar el número basado en la fecha
+            numero = 1
+            for idx, fecha in enumerate(fechas_unicas, 1):
+                if fecha == self.fecha:
+                    numero = idx
+                    break
+            else:
+                # Si la fecha no existe aún, será el siguiente número
+                numero = len(fechas_unicas) + 1
+            
+            self.numero = numero
+        super().save(*args, **kwargs)
     
     class Meta:
         ordering = ['-fecha', '-fecha_registro']
@@ -130,7 +137,7 @@ class CompraPadre(models.Model):
 
 # Modelo Compra vinculado a CompraPadre
 class Compra(models.Model):
-    numero = models.IntegerField(unique=True, null=True, blank=True, editable=False)
+    numero = models.IntegerField(null=True, blank=True, editable=False)
     compra_padre = models.ForeignKey(CompraPadre, on_delete=models.CASCADE, related_name='compras', null=True, blank=True)
     producto = models.ForeignKey(Producto, on_delete=models.CASCADE, related_name='compras')
     fecha = models.DateField()
@@ -141,6 +148,25 @@ class Compra(models.Model):
     notas = models.TextField(blank=True)
     fecha_registro = models.DateTimeField(auto_now_add=True)
     
+    def save(self, *args, **kwargs):
+        # Asignar número basado en la fecha (agrupado por día)
+        if self.numero is None:
+            # Obtener todas las fechas únicas ordenadas ascendentemente
+            fechas_unicas = list(Compra.objects.values_list('fecha', flat=True).distinct().order_by('fecha'))
+            
+            # Buscar el número basado en la fecha
+            numero = 1
+            for idx, fecha in enumerate(fechas_unicas, 1):
+                if fecha == self.fecha:
+                    numero = idx
+                    break
+            else:
+                # Si la fecha no existe aún, será el siguiente número
+                numero = len(fechas_unicas) + 1
+            
+            self.numero = numero
+        super().save(*args, **kwargs)
+    
     class Meta:
         ordering = ['-fecha', '-fecha_registro']
     
@@ -149,26 +175,28 @@ class Compra(models.Model):
         return self.cantidad * self.costo_unitario
     
     def __str__(self):
-        return f"Compra #{self.id} - {self.producto.nombre}"
+        return f"Compra #{self.numero} - {self.producto.nombre}"
 
 
 class Venta(models.Model):
     CANALES = [
         ('local', 'Local'),
         ('whatsapp', 'WhatsApp'),
+        ('messenger', 'Messenger'),
+        ('instagram', 'Instagram'),
         ('telefono', 'Teléfono'),
-        ('delivery', 'Delivery'),
         ('otro', 'Otro'),
     ]
     
     METODOS_PAGO = [
         ('efectivo', 'Efectivo'),
         ('transferencia', 'Transferencia'),
-        ('tarjeta', 'Tarjeta'),
+        ('factura', 'Factura'),
+        ('debito', 'Debito'),
         ('credito', 'Crédito'),
     ]
     
-    numero = models.IntegerField(unique=True, null=True, blank=True, editable=False)
+    numero = models.IntegerField(null=True, blank=True, editable=False)
     producto = models.ForeignKey(Producto, on_delete=models.CASCADE, related_name='ventas')
     fecha = models.DateField()
     canal_venta = models.CharField(max_length=20, choices=CANALES, default='local')
@@ -179,6 +207,25 @@ class Venta(models.Model):
     pagado = models.BooleanField(default=True)
     notas = models.TextField(blank=True)
     fecha_registro = models.DateTimeField(auto_now_add=True)
+    
+    def save(self, *args, **kwargs):
+        # Asignar número basado en la fecha (agrupado por día)
+        if self.numero is None:
+            # Obtener todas las fechas únicas ordenadas ascendentemente
+            fechas_unicas = list(Venta.objects.values_list('fecha', flat=True).distinct().order_by('fecha'))
+            
+            # Buscar el número basado en la fecha
+            numero = 1
+            for idx, fecha in enumerate(fechas_unicas, 1):
+                if fecha == self.fecha:
+                    numero = idx
+                    break
+            else:
+                # Si la fecha no existe aún, será el siguiente número
+                numero = len(fechas_unicas) + 1
+            
+            self.numero = numero
+        super().save(*args, **kwargs)
     
     class Meta:
         ordering = ['-fecha', '-fecha_registro']
