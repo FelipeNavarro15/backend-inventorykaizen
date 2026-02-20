@@ -13,7 +13,11 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DEBUG") == "True"
 
-ALLOWED_HOSTS = ['backend-inventorykaizen.onrender.com',]
+ALLOWED_HOSTS = [
+    'backend-inventorykaizen.onrender.com',
+    'localhost',
+    '127.0.0.1',
+]
 
 # Application definition
 INSTALLED_APPS = [
@@ -68,7 +72,8 @@ DATABASES = {
     'default': dj_database_url.config(
         default=os.getenv("DATABASE_URL"),
         conn_max_age=600,
-        ssl_require=True
+        # Solo requiere SSL si NO estás en modo DEBUG (o sea, en producción)
+        ssl_require=not DEBUG 
     )
 }
 
@@ -115,7 +120,9 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # CORS settings
 CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOWED_ORIGINS = [
-    "https://frontend-inventorykaizen.vercel.app",
+    "https://frontend-inventorykaizen.vercel.app", # Producción
+    "http://localhost:5173",                       # Local (Vite)
+    "http://127.0.0.1:5173",
 ]
 
 # REST Framework Settings

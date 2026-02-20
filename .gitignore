@@ -23,3 +23,9 @@ Thumbs.db
 # Archivos estáticos y media (opcional, depende de si los quieres en Git)
 media/
 staticfiles/
+
+# Logs
+logs/
+
+# Archivos de migración (opcional, pero a menudo se incluyen)
+migrations/
