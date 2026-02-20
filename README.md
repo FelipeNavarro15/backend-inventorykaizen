@@ -48,11 +48,12 @@ Este es el núcleo (API) del sistema ERP para **Kaizen F&F**, diseñado para cen
     python manage.py runserver
 
 💻 Frontend Relacionado
-Este repositorio solo contiene el Backend. El cliente (interfaz de usuario) está alojado en un repositorio independiente para mantener la separación de responsabilidades
+Este repositorio solo contiene el Backend. El cliente (interfaz de usuario) está alojado en un repositorio independiente para mantener la separación de responsabilidades:
+👉 [Enlace al repositorio del Frontend aquí](https://github.com/FelipeNavarro15/frontend-inventorykaizen)
 
 👤 Autor
 Felipe Navarro - Desarrollo Integral - FelipeNavarro15
 
-Nota: Este proyecto forma parte de la transformación digital de Kaizen F&F.
+Nota: Este proyecto forma parte de la transformación digital de mi negocio Kaizen F&F.
 
 ---
