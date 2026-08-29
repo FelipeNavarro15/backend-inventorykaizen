@@ -2,6 +2,8 @@
 from django.http import QueryDict
 from rest_framework import serializers
 from .models import Producto, Compra, CompraPadre, Venta, MovimientoFinanciero, CategoriaDistribucion
+from .models import Inventario, AjusteInventario
+from django.db.models import Avg
 
 class ProductoSerializer(serializers.ModelSerializer):
     stock_actual = serializers.ReadOnlyField()
@@ -282,6 +284,29 @@ class InventarioSerializer(serializers.Serializer):
     stock_actual = serializers.IntegerField()
     total_compras = serializers.IntegerField()
     total_ventas = serializers.IntegerField()
+    precio_unitario = serializers.IntegerField()
+    precio_compra_promedio = serializers.IntegerField()
+    stock_minimo = serializers.IntegerField()
+
+
+class AjusteInventarioSerializer(serializers.ModelSerializer):
+    producto_id = serializers.IntegerField(source='inventario.producto.id', read_only=True)
+    producto_nombre = serializers.CharField(source='inventario.producto.nombre', read_only=True)
+
+    class Meta:
+        model = AjusteInventario
+        fields = ['id', 'producto_id', 'producto_nombre', 'tipo', 'cantidad', 'stock_antes', 'stock_despues', 'comentario', 'fecha', 'fecha_registro']
+        read_only_fields = ['id', 'fecha', 'fecha_registro', 'producto_id', 'producto_nombre']
+
+
+class InventarioModelSerializer(serializers.ModelSerializer):
+    producto = ProductoSerializer(read_only=True)
+    stock_actual = serializers.ReadOnlyField()
+
+    class Meta:
+        model = Inventario
+        fields = ['id', 'user', 'producto', 'minimo_stock', 'fecha_actualizacion', 'stock_actual']
+        read_only_fields = ['id', 'user', 'fecha_actualizacion', 'stock_actual']
 
 
 class ReporteFinancieroSerializer(serializers.Serializer):

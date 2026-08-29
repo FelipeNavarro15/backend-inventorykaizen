@@ -7,17 +7,20 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 from rest_framework.permissions import IsAuthenticated
 from decimal import Decimal
-from django.db.models import Sum, F, DecimalField, ExpressionWrapper
+from django.db.models import Sum, F, DecimalField, ExpressionWrapper, Avg
 from django.db.models import Q
 from django.db.models.functions import Coalesce
 from datetime import datetime, timedelta
 from .models import Producto, Compra, CompraPadre, Venta, MovimientoFinanciero, CategoriaDistribucion
+from .models import Inventario, AjusteInventario
 from .serializers import (
     ProductoSerializer, CompraSerializer, CompraPadreSerializer, 
     CompraPadreCreateUpdateSerializer, VentaSerializer,
     InventarioSerializer, ReporteFinancieroSerializer,
     MovimientoFinancieroSerializer, CategoriaDistribucionSerializer,
+    AjusteInventarioSerializer,
 )
+# CSRF handling is left to middleware for production
 
 class ProductoViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
@@ -430,58 +433,59 @@ class CategoriaDistribucionViewSet(viewsets.ModelViewSet):
         })
 
 
-class InventarioViewSet(viewsets.GenericViewSet):
+class InventarioViewSet(GenericViewSet):
+    """Endpoints para listar inventario, reporte financiero y ajustes de stock."""
     permission_classes = [IsAuthenticated]
-    queryset = Producto.objects.all()
-    
-    def get_queryset(self):
-        """Filtrar productos por usuario autenticado"""
-        return Producto.objects.filter(
-            user=self.request.user,
-            producto_base__isnull=True
-        )
-    
+    pagination_class = None
+    serializer_class = InventarioSerializer
+
     def list(self, request):
-        productos = self.get_queryset()
-        inventario = []
-
+        productos = Producto.objects.filter(user=request.user)
+        data = []
         for producto in productos:
-            productos_relacionados = Producto.objects.filter(
-                Q(id=producto.id) | Q(producto_base=producto),
-                user=request.user
-            )
+            # calcular compras y ventas relacionadas (considerando producto_base)
+            producto_base = producto.producto_inventario
+            productos_relacionados = Producto.objects.filter(Q(id=producto_base.id) | Q(producto_base=producto_base), user=request.user)
 
-            total_compras = sum(
-                compra.cantidad * compra.producto.factor_conversion
-                for compra in Compra.objects.filter(
-                    user=request.user,
-                    producto__in=productos_relacionados
-                ).select_related('producto')
-            )
+            total_compras = Compra.objects.filter(user=request.user, producto__in=productos_relacionados).aggregate(total=Sum('cantidad'))['total'] or 0
+            total_ventas = Venta.objects.filter(user=request.user, producto__in=productos_relacionados).aggregate(total=Sum('cantidad'))['total'] or 0
 
-            total_ventas = sum(
-                venta.cantidad * venta.producto.factor_conversion
-                for venta in Venta.objects.filter(
-                    user=request.user,
-                    producto__in=productos_relacionados
-                ).select_related('producto')
-            )
+            # precio compra promedio
+            precio_promedio = Compra.objects.filter(user=request.user, producto__in=productos_relacionados).aggregate(avg=Avg('costo_unitario'))['avg']
+            precio_promedio = int(precio_promedio) if precio_promedio is not None else (producto.precio_unitario or 0)
 
-            inventario.append({
+            # inventario configurado y ajustes
+            try:
+                inv = Inventario.objects.get(user=request.user, producto=producto)
+                stock_minimo = inv.minimo_stock
+                ajustes_total = inv.ajustes.aggregate(total=Sum('cantidad'))['total'] or 0
+            except Inventario.DoesNotExist:
+                inv = None
+                stock_minimo = 5
+                ajustes_total = 0
+
+            stock_actual = int(getattr(producto, 'stock_actual', 0) + (ajustes_total or 0))
+
+            item = {
+                'id': producto.id,
+                'producto': producto.id,
                 'producto_id': producto.id,
                 'producto_nombre': producto.nombre,
                 'producto_imagen': producto.imagen.url if producto.imagen else None,
                 'unidad_medida': producto.unidad_medida,
                 'marca': producto.marca,
                 'categoria': producto.categoria,
-                'stock_actual': total_compras - total_ventas,
+                'stock_actual': stock_actual,
                 'total_compras': total_compras,
                 'total_ventas': total_ventas,
-            })
+                'precio_unitario': producto.precio_unitario or 0,
+                'precio_compra_promedio': precio_promedio,
+                'stock_minimo': stock_minimo,
+            }
+            data.append(item)
 
-        serializer = InventarioSerializer(inventario, many=True)
-        return Response(serializer.data)
-    
+        return Response(data)
+
     @action(detail=False, methods=['get'])
     def reporte_financiero(self, request):
         fecha_inicio = request.query_params.get('fecha_inicio')
@@ -553,13 +557,125 @@ class InventarioViewSet(viewsets.GenericViewSet):
         ganancia = total_ingresos - total_gastos
 
         data = {
-            'total_ingresos': total_ingresos,
-            'total_gastos': total_gastos,
-            'ganancia_perdida': ganancia,
-            'ventas_pagadas': ventas_pagadas,
-            'ventas_pendientes': ventas_pendientes,
+            'total_ingresos': int(total_ingresos),
+            'total_gastos': int(total_gastos),
+            'ganancia_perdida': int(ganancia),
+            'ventas_pagadas': int(ventas_pagadas),
+            'ventas_pendientes': int(ventas_pendientes),
             'cantidad_ventas': ventas.count(),
             'cantidad_compras': compras.count(),
         }
 
         return Response(data)
+
+    @action(detail=False, methods=['post'])
+    def ajustar(self, request):
+        """Registrar un ajuste de inventario desde frontend.
+        Payload esperado: { productoId, type: 'perdida'|'ajuste', cantidad, stock_real, comentario }
+        """
+        data = request.data
+        producto_id = data.get('productoId') or data.get('producto') or data.get('producto_id')
+        tipo = data.get('type')
+        cantidad = data.get('cantidad')
+        stock_real = data.get('stock_real')
+        comentario = data.get('comentario', '')
+
+        if not producto_id or not tipo:
+            return Response({'detail': 'productoId y type son requeridos'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            producto = Producto.objects.get(id=producto_id, user=request.user)
+        except Producto.DoesNotExist:
+            return Response({'detail': 'Producto no encontrado'}, status=status.HTTP_404_NOT_FOUND)
+
+        inv, _created = Inventario.objects.get_or_create(user=request.user, producto=producto)
+        stock_antes = inv.stock_actual
+
+        if tipo == 'perdida':
+            try:
+                delta = -abs(int(cantidad or 0))
+            except Exception:
+                return Response({'detail': 'cantidad inválida'}, status=status.HTTP_400_BAD_REQUEST)
+            stock_despues = stock_antes + delta
+        else:
+            # ajuste físico
+            try:
+                stock_despues = int(stock_real)
+            except Exception:
+                return Response({'detail': 'stock_real inválido'}, status=status.HTTP_400_BAD_REQUEST)
+            delta = stock_despues - stock_antes
+
+        ajuste = AjusteInventario.objects.create(
+            user=request.user,
+            inventario=inv,
+            tipo=tipo,
+            cantidad=delta,
+            stock_antes=stock_antes,
+            stock_despues=stock_despues,
+            comentario=comentario
+        )
+
+        serializer = AjusteInventarioSerializer(ajuste)
+        # Normalizar claves a camelCase para frontend
+        data = dict(serializer.data)
+        transformed = {
+            'id': data.get('id'),
+            'productoId': data.get('producto_id'),
+            'productoNombre': data.get('producto_nombre'),
+            'tipo': data.get('tipo'),
+            'cantidad': data.get('cantidad'),
+            'stockAntes': data.get('stock_antes'),
+            'stockDespues': data.get('stock_despues'),
+            'comentario': data.get('comentario'),
+            'fecha': data.get('fecha'),
+            'fechaRegistro': data.get('fecha_registro'),
+        }
+        return Response(transformed, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['post'])
+    def set_minimo(self, request):
+        """Establecer el mínimo de stock para un producto: { productoId, minimo }"""
+        producto_id = request.data.get('productoId') or request.data.get('producto')
+        minimo = request.data.get('minimo')
+        if producto_id is None or minimo is None:
+            return Response({'detail': 'productoId y minimo son requeridos'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            producto = Producto.objects.get(id=producto_id, user=request.user)
+        except Producto.DoesNotExist:
+            return Response({'detail': 'Producto no encontrado'}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            minimo_val = int(minimo)
+        except Exception:
+            return Response({'detail': 'minimo inválido'}, status=status.HTTP_400_BAD_REQUEST)
+
+        inv, _ = Inventario.objects.get_or_create(user=request.user, producto=producto)
+        inv.minimo_stock = minimo_val
+        inv.save()
+        return Response({'productoId': producto.id, 'minimo': inv.minimo_stock})
+    
+    @action(detail=False, methods=['get'])
+    def ajustes(self, request):
+        """Listar ajustes de inventario del usuario. Opcional: ?productoId=123"""
+        producto_id = request.query_params.get('productoId') or request.query_params.get('producto')
+        qs = AjusteInventario.objects.filter(user=request.user)
+        if producto_id:
+            qs = qs.filter(inventario__producto_id=producto_id)
+        serializer = AjusteInventarioSerializer(qs.order_by('-fecha_registro'), many=True)
+        results = []
+        for data in serializer.data:
+            results.append({
+                'id': data.get('id'),
+                'productoId': data.get('producto_id'),
+                'productoNombre': data.get('producto_nombre'),
+                'tipo': data.get('tipo'),
+                'cantidad': data.get('cantidad'),
+                'stockAntes': data.get('stock_antes'),
+                'stockDespues': data.get('stock_despues'),
+                'comentario': data.get('comentario'),
+                'fecha': data.get('fecha'),
+                'fechaRegistro': data.get('fecha_registro'),
+            })
+        return Response(results)
+    
+
+

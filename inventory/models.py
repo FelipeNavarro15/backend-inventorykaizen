@@ -7,6 +7,7 @@ from django.contrib.auth.models import User
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from cloudinary_storage.storage import RawMediaCloudinaryStorage
+from django.db.models import Avg
 
 class Producto(models.Model): 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='productos')
@@ -332,6 +333,55 @@ class CategoriaDistribucion(models.Model):
         return self.nombre
 
 
+class Inventario(models.Model):
+    """Modelo para almacenar configuraciones de inventario por producto y usuario.
+    El stock real se calcula a partir de compras/ventas y se ajusta mediante registros en AjusteInventario."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='inventarios')
+    producto = models.OneToOneField(Producto, on_delete=models.CASCADE, related_name='inventario')
+    minimo_stock = models.IntegerField(default=5, validators=[MinValueValidator(0)])
+    fecha_actualizacion = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('user', 'producto')
+
+    def __str__(self):
+        return f"Inventario {self.producto.nombre} (user={self.user.username})"
+
+    @property
+    def stock_actual(self):
+        # Base computed from compras - ventas (Producto.stock_actual)
+        base = getattr(self.producto, 'stock_actual', 0)
+        # Sumar ajustes registrados
+        ajustes = self.ajustes.aggregate(total=models.Sum('cantidad'))['total'] or 0
+        return int(base + ajustes)
+
+
+class AjusteInventario(models.Model):
+    TIPOS = [
+        ('perdida', 'Pérdida'),
+        ('ajuste', 'Ajuste'),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='ajustes_inventario')
+    inventario = models.ForeignKey(Inventario, on_delete=models.CASCADE, related_name='ajustes')
+    tipo = models.CharField(max_length=20, choices=TIPOS)
+    cantidad = models.IntegerField(help_text='Cantidad a sumar(+) o restar(-) al stock base')
+    stock_antes = models.IntegerField()
+    stock_despues = models.IntegerField()
+    comentario = models.TextField(blank=True)
+    fecha = models.DateField(auto_now_add=True)
+    fecha_registro = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-fecha_registro']
+
+    def save(self, *args, **kwargs):
+        # asegurar que user coincide
+        if not self.user_id:
+            self.user = self.inventario.user
+        super().save(*args, **kwargs)
+
+
 @receiver(post_save, sender=Venta)
 def sincronizar_movimiento_venta(sender, instance, **kwargs):
     MovimientoFinanciero.objects.update_or_create(
@@ -378,7 +428,3 @@ def sincronizar_movimiento_compra(sender, instance, **kwargs):
 @receiver(post_delete, sender=Compra)
 def eliminar_movimiento_compra(sender, instance, **kwargs):
     MovimientoFinanciero.objects.filter(user=instance.user, origen_model='compra', origen_id=instance.id).delete()
-    
-######
-# Modelo para la tienda web
-######
